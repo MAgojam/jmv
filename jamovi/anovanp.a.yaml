@@ -84,11 +84,26 @@ options:
           R: >
             `TRUE` or `FALSE` (default), provide effect-sizes
 
-    - name: pairs
-      title: DSCF pairwise comparisons
-      type: Bool
-      default: false
+    # - name: pairs
+    #   title: DSCF pairwise comparisons
+    #   type: Bool
+    #   default: false
+    #   description:
+    #       R: >
+    #         `TRUE` or `FALSE` (default), perform pairwise comparisons
+    
+    - name: postHocMethod
+      title: Post-hoc pairwise comparisons
+      type: List
+      options:
+        - name: none
+          title: None
+        - name: dscf
+          title: Dwass-Steel-Critchlow-Fligner
+        - name: dunn
+          title: Dunn's test
+      default: none
       description:
           R: >
-            `TRUE` or `FALSE` (default), perform pairwise comparisons
+            the post-hoc test to use, 'none', 'dscf' or 'dunn'
 ...

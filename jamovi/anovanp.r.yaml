@@ -2,7 +2,6 @@
 name:  anovaNP
 title: One-Way ANOVA (Non-parametric)
 jrs: '1.0'
-
 items:
     - name: table
       title: Kruskal-Wallis
@@ -11,61 +10,83 @@ items:
       rows: (deps)
       clearWith:
         - group
-
       columns:
         - name: name
           title: ""
           content: ($key)
           type: text
-
         - name: chiSq
           title: χ²
           type: number
-
         - name: df
           title: df
           type: integer
-
         - name: p
           title: p
           type: number
           format: zto,pvalue
-
         - name: es
           title: ε²
           type: number
           visible: (es)
-
     - name: comparisons
       title: Dwass-Steel-Critchlow-Fligner pairwise comparisons
       type: Array
       description: an array of pairwise comparison tables
       items: (deps)
-      visible: (pairs)
+      visible: (postHocMethod == 'dscf')
       clearWith:
         - group
-
       template:
-        title: Pairwise comparisons - $key
+        title: DSCF pairwise comparisons - $key
         type: Table
         rows: 0
         clearWith:
-
         columns:
           - name: p1
             title: ""
             content: .
             type: text
-
           - name: p2
             title: ""
             content: .
             type: text
-
           - name: W
             type: number
-
           - name: p
             title: p
+            type: number
+            format: zto,pvalue
+    - name: dunnComparisons
+      title: Dunn's Test pairwise comparisons
+      type: Array
+      description: an array of Dunn's test pairwise comparison tables
+      items: (deps)
+      visible: (postHocMethod == 'dunn')
+      clearWith:
+        - group
+      template:
+        title: Dunn's pairwise comparisons - $key
+        type: Table
+        rows: 0
+        clearWith:
+        columns:
+          - name: p1
+            title: ""
+            content: .
+            type: text
+          - name: p2
+            title: ""
+            content: .
+            type: text
+          - name: z
+            title: z
+            type: number
+          - name: p
+            title: p <sub>(unadj)</sub>
+            type: number
+            format: zto,pvalue
+          - name: p.adj
+            title: p <sub>(bonf)</sub>
             type: number
             format: zto,pvalue

@@ -29,42 +29,69 @@ anovaNPClass <- R6::R6Class(
                 ))
             }
 
-            if (self$options$get("pairs")) {
+            postHocMethod <- self$options$get("postHocMethod")
 
+            if (postHocMethod != "none") {
                 nGroups = nlevels(groupColumn)
                 pairs <- private$.genPairs(groupColumn)
 
                 for (depName in deps) {
-
                     depColumn <- data[[depName]]
-                    table <- self$results$get('comparisons')$get(depName)
 
-                    sdata <- base::split(depColumn, groupColumn)
+                    # Determine which post-hoc test to use
+                    if (postHocMethod == "dunn") {
+                        table <- self$results$get('dunnComparisons')$get(depName)
 
-                    for (pair in pairs) {
-                        if (table$getCell(rowKey=pair, 'W')$isEmpty) {
+                        # Prepare data for Dunn test
+                        cleanData <- data.frame(
+                            y = depColumn,
+                            group = groupColumn
+                        )
+                        cleanData <- na.omit(cleanData)
 
-                            table$setStatus('running')
-                            private$.checkpoint()
+                        # Run Dunn test
+                        dunnResults <- private$.dunnTest(cleanData$y, cleanData$group)
 
-                            pairData <- list(sdata[[pair[1]]], sdata[[pair[2]]])
-                            result <- pSDCFlig(pairData, method="Asymptotic", n.g=nGroups)
-
+                        # Fill in the results table
+                        for (i in 1:nrow(dunnResults)) {
+                            pair <- c(dunnResults$group1[i], dunnResults$group2[i])
                             table$setRow(rowKey=pair, list(
                                 p1=pair[1],
                                 p2=pair[2],
-                                W=result$obs.stat,
-                                p=result$p.val
+                                z=dunnResults$z[i],
+                                p=dunnResults$p.unadj[i],
+                                p.adj=dunnResults$p.adj[i]
                             ))
-
                             table$setStatus('complete')
+                        }
+                    } else if (postHocMethod == "dscf") {
+                        # DSCF method
+                        table <- self$results$get('comparisons')$get(depName)
+                        sdata <- base::split(depColumn, groupColumn)
+
+                        for (pair in pairs) {
+                            if (table$getCell(rowKey=pair, 'W')$isEmpty) {
+                                table$setStatus('running')
+                                private$.checkpoint()
+
+                                pairData <- list(sdata[[pair[1]]], sdata[[pair[2]]])
+                                result <- pSDCFlig(pairData, method="Asymptotic", n.g=nGroups)
+
+                                table$setRow(rowKey=pair, list(
+                                    p1=pair[1],
+                                    p2=pair[2],
+                                    W=result$obs.stat,
+                                    p=result$p.val
+                                ))
+
+                                table$setStatus('complete')
+                            }
                         }
                     }
                 }
             }
         },
         .init=function() {
-
             data <- self$data
             deps <- self$options$get('deps')
             group <- self$options$get('group')
@@ -73,15 +100,24 @@ anovaNPClass <- R6::R6Class(
                 return()
 
             compTables <- self$results$get('comparisons')
+            dunnCompTables <- self$results$get('dunnComparisons')
 
             groupColumn <- data[[group]]
             pairs <- private$.genPairs(groupColumn)
 
             for (depName in deps) {
                 depColumn <- data[[depName]]
+
+                # Initialize tables for both methods
                 depTable <- compTables$get(depName)
+                dunnDepTable <- dunnCompTables$get(depName)
+
                 for (pair in pairs) {
                     depTable$addRow(rowKey=pair, values=list(
+                        p1=pair[1],
+                        p2=pair[2]))
+
+                    dunnDepTable$addRow(rowKey=pair, values=list(
                         p1=pair[1],
                         p2=pair[2]))
                 }
@@ -107,7 +143,95 @@ anovaNPClass <- R6::R6Class(
         },
         .formula=function() {
             jmvcore:::composeFormula(self$options$deps, self$options$group)
-        })
+        },
+        # Implementazione del test di Dunn
+        .dunnTest = function(x, g) {
+            # Assicurarsi che g sia un fattore
+            g <- as.factor(g)
+
+            # Calcolare i ranghi
+            N <- length(x)
+            ranks <- rank(x)
+
+            # Calcolare il rango medio per ogni gruppo
+            groups <- levels(g)
+            k <- length(groups)
+
+            # Inizializzare i risultati
+            results <- data.frame(
+                group1 = character(),
+                group2 = character(),
+                meanRank1 = numeric(),
+                meanRank2 = numeric(),
+                diff = numeric(),
+                se = numeric(),
+                z = numeric(),
+                p.unadj = numeric(),
+                p.adj = numeric(),
+                stringsAsFactors = FALSE
+            )
+
+            # Calcolare la somma dei ranghi e la dimensione per ogni gruppo
+            group_sizes <- numeric(k)
+            group_ranks <- numeric(k)
+
+            for (i in 1:k) {
+                group_i <- (g == groups[i])
+                group_sizes[i] <- sum(group_i)
+                group_ranks[i] <- sum(ranks[group_i])
+            }
+
+            # Calcolare i ranghi medi
+            mean_ranks <- group_ranks / group_sizes
+
+            # Calcolare la varianza dei ranghi
+            # Gestire i legami (ties)
+            ties <- table(ranks)
+            tie_correction <- 1
+            if (any(ties > 1)) {
+                tie_correction <- 1 - sum((ties^3 - ties)) / (N^3 - N)
+            }
+
+            # Confronti a coppie
+            comparisons <- 0
+
+            for (i in 1:(k-1)) {
+                for (j in (i+1):k) {
+                    comparisons <- comparisons + 1
+
+                    # Differenza dei ranghi medi
+                    diff <- mean_ranks[i] - mean_ranks[j]
+
+                    # Errore standard
+                    se <- sqrt((N * (N + 1) / 12) * (1/group_sizes[i] + 1/group_sizes[j]) * tie_correction)
+
+                    # Statistica z
+                    z <- diff / se
+
+                    # P-value (non aggiustato)
+                    p.unadj <- 2 * pnorm(-abs(z))
+
+                    # Aggiungi alla tabella dei risultati
+                    results[comparisons, ] <- list(
+                        groups[i],
+                        groups[j],
+                        mean_ranks[i],
+                        mean_ranks[j],
+                        diff,
+                        se,
+                        z,
+                        p.unadj,
+                        NA  # Il p-value aggiustato sarà calcolato dopo
+                    )
+                }
+            }
+
+            # Aggiusta i p-value per test multipli (Bonferroni)
+            results$p.adj <- p.adjust(results$p.unadj, method = "bonferroni")
+
+            return(results)
+        }
+    )
 )
 
 # the following is borrowed from NSM3
